@@ -1,10 +1,12 @@
 {-# LANGUAGE PatternSynonyms, MultiWayIf, DuplicateRecordFields, ViewPatterns, RecordWildCards, MultiParamTypeClasses, TypeFamilies, DeriveGeneric, DeriveAnyClass, OverloadedStrings, CPP #-}
 module Pure.Portal where
 
-import Pure
-import Pure.Data.Txt as Txt (unwords)
+import Pure hiding (Open,OnClose)
+import Pure.Data.Cond
 import Pure.Data.Prop
+import Pure.Data.Txt as Txt (unwords)
 import Pure.Proxy
+import Pure.Transition
 
 import Control.Arrow ((&&&))
 import Control.Concurrent
@@ -13,7 +15,7 @@ import Data.Coerce (coerce)
 import Data.IORef
 import Data.Foldable (for_)
 import Data.List as List
-import Data.Maybe (isJust,fromMaybe)
+import Data.Maybe (isJust,fromMaybe,isNothing)
 import qualified Data.List as List
 import Data.Traversable (for)
 import GHC.Generics as G
@@ -203,15 +205,15 @@ instance Pure Portal where
                           <*> newIORef def
                           <*> newIORef def
 
-                    , receive = \newprops oldstate -> do
-                        oldprops <- ask self
-                        let change = open newprops /= open oldprops
-                        if | change && open newprops -> do
+                    , receive = \newprops@(Pure.Portal.Portal_ { open = isOpen }) oldstate -> do
+                        oldprops@(Pure.Portal.Portal_ { open = wasOpen }) <- ask self
+                        let change = isOpen /= wasOpen
+                        if | change && isOpen -> do
                             Pure.Portal.onMount newprops
-                            return oldstate { active = open newprops }
+                            return oldstate { active = isOpen }
                            | change -> do
                             Pure.Portal.onUnmounted newprops
-                            return oldstate { active = open newprops }
+                            return oldstate { active = isOpen }
                            | otherwise -> return oldstate
 
                     , unmounted = void $ do
@@ -256,11 +258,6 @@ contains node target =
 #else
     return True -- hmm?
 #endif
-
-data As = As_
-pattern As :: HasProp As a => Prop As a -> a -> a
-pattern As p a <- (getProp As_ &&& id -> (p,a)) where
-    As p a = setProp As_ p a
 
 data PortalNode = PortalNode_
 pattern PortalNode :: HasProp PortalNode a => Prop PortalNode a -> a -> a
@@ -351,6 +348,16 @@ data OpenOnTriggerMouseEnter = OpenOnTriggerMouseEnter_
 pattern OpenOnTriggerMouseEnter :: HasProp OpenOnTriggerMouseEnter a => Prop OpenOnTriggerMouseEnter a -> a -> a
 pattern OpenOnTriggerMouseEnter p a <- (getProp OpenOnTriggerMouseEnter_ &&& id -> (p,a)) where
     OpenOnTriggerMouseEnter p a = setProp OpenOnTriggerMouseEnter_ p a
+
+data WithPortal = WithPortal_
+pattern WithPortal :: HasProp WithPortal a => Prop WithPortal a -> a -> a
+pattern WithPortal p a <- (getProp WithPortal_ &&& id -> (p,a)) where
+    WithPortal p a = setProp WithPortal_ p a
+
+data WithTransition = WithTransition_
+pattern WithTransition :: HasProp WithTransition a => Prop WithTransition a -> a -> a
+pattern WithTransition p a <- (getProp WithTransition_ &&& id -> (p,a)) where
+    WithTransition p a = setProp WithTransition_ p a
 
 instance HasProp As Portal where
     type Prop As Portal = Features -> [View] -> View
@@ -464,3 +471,141 @@ instance HasProp OpenOnTriggerMouseEnter Portal where
     type Prop OpenOnTriggerMouseEnter Portal = Bool
     getProp _ = openOnTriggerMouseEnter
     setProp _ ootme p = p { openOnTriggerMouseEnter = ootme }
+
+data TransitionablePortal = TransitionablePortal_
+    { children       :: [View]
+    , onClose        :: IO ()
+    , onHide         :: TransitionStatus -> IO ()
+    , onOpen         :: IO ()
+    , onStart        :: TransitionStatus -> IO ()
+    , open           :: Maybe Bool
+    , duration       :: AnimationDuration
+    , withPortal     :: Portal -> Portal
+    , inAnimation    :: SomeInTheme
+    , outAnimation   :: SomeOutTheme
+    , withTransition :: Transition -> Transition
+    } deriving (Generic)
+
+instance Default TransitionablePortal where
+    def = (G.to gdef)
+        { duration       = Uniform 400
+        , withPortal     = id
+        , withTransition = id
+        , inAnimation    = fadeIn
+        , outAnimation   = fadeOut
+        }
+
+pattern TransitionablePortal :: TransitionablePortal -> TransitionablePortal
+pattern TransitionablePortal tp = tp
+
+data TransitionablePortalState = TPS
+    { portalOpen        :: Bool
+    , transitionVisible :: Bool
+    }
+
+instance Pure TransitionablePortal where
+    view =
+        LibraryComponentIO $ \self ->
+            let
+                handlePortalClose = do
+                    TransitionablePortal_ {..} <- ask self
+                    TPS {..} <- get self
+                    (isNothing open) #
+                        modify_ self (\_ TPS {..} -> TPS { portalOpen = not portalOpen, .. })
+
+                handlePortalOpen _ = modify_ self $ \_ TPS {..} -> TPS { portalOpen = True, .. }
+
+                handleTransitionHide status = do
+                    TransitionablePortal_ {..} <- ask self
+                    TPS {..} <- get self
+                    modify self $ \_ TPS {..} -> TPS { transitionVisible = False, .. }
+                    onClose
+                    onHide status
+
+                handleTransitionStart status = do
+                    TransitionablePortal_ {..} <- ask self
+                    TPS {..} <- get self
+                    onStart status
+                    (status == Entering) # do
+                        modify_ self (\_ TPS {..} -> TPS { transitionVisible = True, .. })
+                        onOpen
+
+            in def
+                { construct = return (TPS def def)
+
+                , receive = \newprops oldstate -> return $
+                    case open (newprops :: TransitionablePortal) of
+                        Just o -> oldstate { portalOpen = o }
+                        _      -> oldstate
+
+                , render = \TransitionablePortal_ {..} TPS {..} ->
+                    View $ Pure.Portal.Portal $ withPortal $ def
+                        & Open (portalOpen || transitionVisible)
+                        & OnOpen handlePortalOpen
+                        & OnClose handlePortalClose
+                        & Children
+                            [ View $ Pure.Transition.Transition $ withTransition $ def
+                                & TransitionOnMount True
+                                & OnStart handleTransitionStart
+                                & OnHide handleTransitionHide
+                                & Visible portalOpen
+                                & InAnimation inAnimation
+                                & OutAnimation outAnimation
+                                & AnimationDuration duration
+                                & Children children
+                            ]
+                }
+
+instance HasChildren TransitionablePortal where
+    getChildren = children
+    setChildren cs tp = tp { children = cs }
+
+instance HasProp OnClose TransitionablePortal where
+    type Prop OnClose TransitionablePortal = IO ()
+    getProp _ = onClose
+    setProp _ oc tp = tp { onClose = oc }
+
+instance HasProp OnHide TransitionablePortal where
+    type Prop OnHide TransitionablePortal = TransitionStatus -> IO ()
+    getProp _ = onHide
+    setProp _ oh tp = tp { onHide = oh }
+
+instance HasProp OnOpen TransitionablePortal where
+    type Prop OnOpen TransitionablePortal = IO ()
+    getProp _ = onOpen
+    setProp _ oo tp = tp { onOpen = oo }
+
+instance HasProp OnStart TransitionablePortal where
+    type Prop OnStart TransitionablePortal = TransitionStatus -> IO ()
+    getProp _ = onStart
+    setProp _ os tp = tp { onStart = os }
+
+instance HasProp Open TransitionablePortal where
+    type Prop Open TransitionablePortal = Maybe Bool
+    getProp _ = open
+    setProp _ o tp = tp { open = o }
+
+instance HasProp InAnimation TransitionablePortal where
+    type Prop InAnimation TransitionablePortal = SomeInTheme
+    getProp _ = inAnimation
+    setProp _ a tp = tp { inAnimation = a }
+
+instance HasProp OutAnimation TransitionablePortal where
+    type Prop OutAnimation TransitionablePortal = SomeOutTheme
+    getProp _ = outAnimation
+    setProp _ a tp = tp { outAnimation = a }
+
+instance HasProp AnimationDuration TransitionablePortal where
+    type Prop AnimationDuration TransitionablePortal = AnimationDuration
+    getProp _ = duration
+    setProp _ ad tp = tp { duration = ad }
+
+instance HasProp WithPortal TransitionablePortal where
+    type Prop WithPortal TransitionablePortal = Portal -> Portal
+    getProp _ = withPortal
+    setProp _ wp tp = tp { withPortal = wp }
+
+instance HasProp WithTransition TransitionablePortal where
+    type Prop WithTransition TransitionablePortal = Transition -> Transition
+    getProp _ = withTransition
+    setProp _ wt tp = tp { withTransition = wt }

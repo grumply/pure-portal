@@ -17,9 +17,11 @@ library
   build-depends:
       base >=4.8
     , pure >= 0.7 && < 1
+    , pure-cond >= 0.7 && < 1
     , pure-prop >= 0.7 && < 1
     , pure-proxy >= 0.7 && < 1
     , pure-txt >= 0.7 && < 1
+    , pure-transition >= 0.7 && < 1
 
   hs-source-dirs:      src
   default-language:    Haskell2010
