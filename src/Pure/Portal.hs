@@ -1,5 +1,5 @@
 {-# LANGUAGE PatternSynonyms, MultiWayIf, DuplicateRecordFields, ViewPatterns, RecordWildCards, MultiParamTypeClasses, TypeFamilies, DeriveGeneric, DeriveAnyClass, OverloadedStrings, CPP #-}
-module Pure.Portal where
+module Pure.Portal (module Pure.Portal, module Pure.Proxy) where
 
 import Pure hiding (Open,OnClose)
 import Pure.Data.Cond
