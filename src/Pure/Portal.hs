@@ -1,4 +1,4 @@
-{-# LANGUAGE PatternSynonyms, MultiWayIf, DuplicateRecordFields, ViewPatterns, RecordWildCards, MultiParamTypeClasses, TypeFamilies, DeriveGeneric, DeriveAnyClass, OverloadedStrings, CPP #-}
+{-# LANGUAGE PatternSynonyms, MultiWayIf, DuplicateRecordFields, ViewPatterns, RecordWildCards, MultiParamTypeClasses, TypeFamilies, DeriveGeneric, DeriveAnyClass, OverloadedStrings, CPP, FlexibleContexts #-}
 module Pure.Portal (module Pure.Portal, module Pure.Proxy) where
 
 import Pure hiding (Open,OnClose)
