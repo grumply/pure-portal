@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms, MultiWayIf, DuplicateRecordFields, ViewPatterns, RecordWildCards, MultiParamTypeClasses, TypeFamilies, DeriveGeneric, DeriveAnyClass, OverloadedStrings, CPP, FlexibleContexts #-}
 module Pure.Portal (module Pure.Portal, module Pure.Proxy) where
 
-import Pure hiding (Open,OnClose)
+import Pure hiding (Open,OnClose,duration,not,active,(#))
 import Pure.Data.Cond
 import Pure.Data.Prop
 import Pure.Data.Txt as Txt (unwords)
