@@ -78,7 +78,7 @@ data PortalStateNodes = PSN
 
 instance Pure Portal where
     view =
-        LibraryComponentIO $ \self ->
+        Component $ \self ->
             let
 
                 toRoot = Just . maybe (coerce body) id
@@ -505,7 +505,7 @@ data TransitionablePortalState = TPS
 
 instance Pure TransitionablePortal where
     view =
-        LibraryComponentIO $ \self ->
+        Component $ \self ->
             let
                 handlePortalClose = do
                     TransitionablePortal_ {..} <- ask self
